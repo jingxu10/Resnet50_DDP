@@ -11,14 +11,15 @@ python -m torch.distributed.launch --nproc_per_node=2 resnet_ddp.py
 ```
 
 2. Run with numactl in separate terminals
-In terminal 0:
-```bash
-./resnet_ddp.sh 0 2
-```
-In terminal 1:
-```bash
-./resnet_ddp.sh 1 2
-```
+
+    In terminal 0:
+    ```bash
+    ./resnet_ddp.sh 0 2
+    ```
+    In terminal 1:
+    ```bash
+    ./resnet_ddp.sh 1 2
+    ```
 
 3. Run with MPI
     1. Make sure MPI backend is enabled.
