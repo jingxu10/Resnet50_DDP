@@ -34,14 +34,16 @@ def test(test_loader, net, criterion, optimizer):
     net.eval()
     test_loss = 0
     correct = 0
+    count = 0
     with torch.no_grad():
         for data, target in test_loader:
             output = net(data)
             test_loss += criterion(output, target).item() * len(data) # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
-    test_loss /= len(test_loader.dataset)
-    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(test_loss, correct, len(test_loader.dataset), 100. * correct / len(test_loader.dataset)))
+            count += len(data)
+    test_loss /= count
+    print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(test_loss, correct, count, 100. * correct / count))
 
 def main():
     parser = argparse.ArgumentParser(description='PyTorch DistributedDataParallel Training')

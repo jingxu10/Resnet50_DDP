@@ -29,7 +29,7 @@ run_with_numactl() {
     fi
     
     export OMP_NUM_THREADS=${OMP_NUM_THREADS}
-    cmd="numactl -C ${CORE_S}-${CORE_E} ${MEM} python resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}"
+    cmd="numactl -C ${CORE_S}-${CORE_E} ${MEM} python3 resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}"
     echo $cmd
     $cmd
 }
@@ -45,5 +45,5 @@ if [ -z $RANK ] || [ -z $SIZE ]; then
         run_with_numactl $1 $2
     fi
 else
-    python resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}
+    python3 resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}
 fi
