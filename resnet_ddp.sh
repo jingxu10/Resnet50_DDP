@@ -1,49 +1,17 @@
 #!/bin/bash
 
-run_with_numactl() {
-    RANK=$1
-    SIZE=$2
-    CPS=0
-    NOS=0
-    while IFS= read -r line
-    do
-        if [[ $line == "Core(s) per socket: "* ]]; then
-            CPS=$(echo $line | cut -d ":" -f 2 | xargs)
-        fi
-        if [[ $line == "Socket(s): "* ]]; then
-            NOS=$(echo $line | cut -d ":" -f 2 | xargs)
-        fi
-    done < <(lscpu)
-    NOC=$(($CPS*$NOS))
-    OMP_NUM_THREADS=$(($NOC/$SIZE))
-    CORE_S=$(($RANK*$OMP_NUM_THREADS))
-    CORE_E=$(($CORE_S+$OMP_NUM_THREADS-1))
-    CORE=
-    MEM_S=$(($CORE_S/$CPS))
-    MEM_E=$(($CORE_E/$CPS))
-    MEM=
-    if [ $MEM_S -ne $MEM_E ]; then
-        echo "Cross sockets!"
-    else
-        MEM="-m $MEM_S"
-    fi
-    
-    export OMP_NUM_THREADS=${OMP_NUM_THREADS}
-    cmd="numactl -C ${CORE_S}-${CORE_E} ${MEM} python3 resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}"
-    echo $cmd
-    $cmd
-}
+source /root/oneCCL/release/env/setvars.sh
+export LD_PRELOAD="/usr/local/lib/libiomp5.so"
+export MASTER_ADDR="127.0.0.1"
+export MASTER_PORT="29500"
 
-RANK=${OMPI_COMM_WORLD_RANK}
-SIZE=${OMPI_COMM_WORLD_SIZE}
+# Example:
+# Run 2 processes on 2 sockets. (24 cores/socket, 4 cores for CCL, 20 cores for computation)
+#
+# CCL_WORKER_COUNT means per instance threads used by CCL.
+# CCL_WORKER_COUNT, CCL_WORKER_AFFINITY and I_MPI_PIN_DOMAIN should be consistent.
 
-if [ -z $RANK ] || [ -z $SIZE ]; then
-    if [ $# -ne 2 ]; then
-        echo "Usage: $0 <local_rank> <world_size>"
-        exit 1
-    else
-        run_with_numactl $1 $2
-    fi
-else
-    python3 resnet_ddp.py --local_rank=${RANK} --world_size=${SIZE}
-fi
+export CCL_WORKER_COUNT=4
+export CCL_WORKER_AFFINITY="0,1,2,3,24,25,26,27"
+
+mpiexec.hydra -np 2 -ppn 2 -l -genv I_MPI_PIN_DOMAIN=[0x000000FFFFF0,0xFFFFF0000000] -genv KMP_BLOCKTIME=1 -genv KMP_AFFINITY=granularity=fine,compact,1,0 -genv OMP_NUM_THREADS=20 python3 -u resnet_ddp.py

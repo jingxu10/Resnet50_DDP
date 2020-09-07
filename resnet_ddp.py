@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.distributed as dist
 import torch.utils.data as Data
 import torchvision
+import torch_ccl
 
 EPOCH = 1
 BATCH_SIZE = 256
@@ -46,13 +47,15 @@ def test(test_loader, net, criterion, optimizer):
     print('Test set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)'.format(test_loss, correct, count, 100. * correct / count))
 
 def main():
-    parser = argparse.ArgumentParser(description='PyTorch DistributedDataParallel Training')
-    parser.add_argument('--local_rank', default=0, type=int, help='local rank')
-    parser.add_argument('--world_size', default=1, type=int, help='world size')
-    args = parser.parse_args()
+    rank = 0
+    world_size = 1
 
-    rank = args.local_rank
-    world_size = args.world_size
+    if 'PMI_RANK' in os.environ:
+        os.environ['RANK'] = os.environ.get('PMI_RANK', -1)
+        rank = int(os.environ['RANK'])
+    if 'PMI_SIZE' in os.environ:
+        os.environ['WORLD_SIZE'] = os.environ.get('PMI_SIZE', -1)
+        world_size = int(os.environ['WORLD_SIZE'])
 
     torch.manual_seed(10)
 
@@ -65,7 +68,7 @@ def main():
         os.environ['WORLD_SIZE'] = str(world_size)
         print('rank: {}/{}'.format(rank, world_size))
         dist.init_process_group(
-                backend='gloo'
+                backend='ccl'
         )
 
     transform = torchvision.transforms.Compose([
