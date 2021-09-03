@@ -21,6 +21,11 @@ source /opt/intel/oneapi/mpi/latest/env/vars.sh
 python launch.py --distributed --nproc_per_node 2 resnet_ddp.py
 ```
 
+4. Run with Horovod
+```bash
+horovodrun -np 2 python resnet_ddp.py
+```
+
 #### Set backend
 ```bash
 python resnet_ddp.py --backend [ccl|nccl|gloo|...]
