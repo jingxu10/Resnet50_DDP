@@ -23,7 +23,7 @@ LR = 0.001
 DOWNLOAD = True
 DATA = 'datasets/cifar10/'
 
-def train(train_loader, net, criterion, optimizer, epoch, device, rank):
+def train(train_loader, net, criterion, optimizer, epoch, device, rank, world_size):
     if is_hvd_enabled:
         hvd.broadcast_parameters(net.state_dict(), root_rank=0)
         hvd.broadcast_optimizer_state(optimizer, root_rank=0)
@@ -38,7 +38,7 @@ def train(train_loader, net, criterion, optimizer, epoch, device, rank):
         loss.backward()
         optimizer.step()
         if batch_idx % 10 == 0 or len(data) < BATCH_SIZE:
-            print('[{}] Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(rank, epoch, batch_idx * len(data), len(train_loader.dataset), 100. * batch_idx / len(train_loader), loss.item()))
+            print('[{}] Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(rank, epoch, world_size * batch_idx * len(data), len(train_loader.dataset), 100. * batch_idx / len(train_loader), loss.item()))
     t1 = time.time()
     print('time elapsed: {:.2f}s'.format(t1-t0))
 
@@ -148,7 +148,7 @@ def main(local_rank, rank, world_size, backend='gloo', master_addr='127.0.0.1', 
         optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=net.named_parameters())
 
     for epoch in range(EPOCH):
-        train(train_loader, net, criterion, optimizer, epoch, device, rank)
+        train(train_loader, net, criterion, optimizer, epoch, device, rank, world_size)
         if rank == 0 and (epoch + 1) % 10 == 0:
             torch.save({
                 'epoch': epoch,
