@@ -30,15 +30,11 @@ def train(train_loader, net, criterion, optimizer, epoch, args):
     t0 = time.time()
     for batch_idx, (data, target) in enumerate(train_loader):
         data = data.to(args.device, non_blocking=True)
-        if args.device == 'cpu' and args.ipex:
+        if args.ipex and args.device == 'cpu':
             data = data.to(memory_format=torch.channels_last)
         target = target.to(args.device, non_blocking=True)
         optimizer.zero_grad()
-        if args.device == 'cpu' and args.ipex and args.bf16:
-            with torch.cpu.amp.autocast():
-                output = net(data)
-                loss = criterion(output, target)
-        else:
+        with torch.cpu.amp.autocast(enabled=args.bf16):
             output = net(data)
             loss = criterion(output, target)
         loss.backward()
@@ -56,13 +52,10 @@ def test(test_loader, net, criterion, optimizer, args):
     with torch.no_grad():
         for data, target in test_loader:
             data = data.to(args.device, non_blocking=True)
-            if args.device == 'cpu' and args.ipex:
+            if args.ipex and args.device == 'cpu':
                 data = data.to(memory_format=torch.channels_last)
             target = target.to(args.device, non_blocking=True)
-            if args.device == 'cpu' and args.ipex and args.bf16:
-                with torch.cpu.amp.autocast():
-                    output = net(data)
-            else:
+            with torch.cpu.amp.autocast(enabled=args.bf16):
                 output = net(data)
             test_loss += criterion(output, target).item() * len(data) # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
@@ -149,11 +142,12 @@ def main(args):
         optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=net.named_parameters())
 
     net.train()
-    if args.device == 'cpu' and args.ipex:
-        if not args.bf16:
-            net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.float32, level="O1")
-        else:
-            net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.bfloat16, level="O1")
+    if args.ipex:
+        if args.device == 'cpu':
+            if args.bf16 and args.backend == 'ccl':
+                net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.bfloat16, level="O1")
+            else:
+                net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.float32, level="O1")
 
     if args.world_size > 1 and not is_hvd_enabled:
         device_ids = None
@@ -229,12 +223,15 @@ if __name__ == '__main__':
             # torch.cuda.set_device(args.local_rank)
     if args.backend == 'ccl':
         import torch_ccl
-    if args.device == 'cpu' and args.ipex:
-        try:
-            import intel_extension_for_pytorch as ipex
-            print('Successfully loaded intel_extension_for_pytorch')
-        except Exception as e:
-            print('Failed to load intel_extension_for_pytorch: {}'.format(e))
+    if args.ipex:
+        if args.device == 'cpu':
+            try:
+                import intel_extension_for_pytorch as ipex
+                print('Successfully loaded intel_extension_for_pytorch')
+            except Exception as e:
+                print('Failed to load intel_extension_for_pytorch: {}'.format(e))
+                args.ipex = False
+        else:
             args.ipex = False
     print('Device: {}'.format(args.device))
     if args.world_size == 1:
