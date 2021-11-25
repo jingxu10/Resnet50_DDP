@@ -30,10 +30,17 @@ def train(train_loader, net, criterion, optimizer, epoch, args):
     t0 = time.time()
     for batch_idx, (data, target) in enumerate(train_loader):
         data = data.to(args.device, non_blocking=True)
+        if args.device == 'cpu' and args.ipex:
+            data = data.to(memory_format=torch.channels_last)
         target = target.to(args.device, non_blocking=True)
         optimizer.zero_grad()
-        output = net(data)
-        loss = criterion(output, target)
+        if args.device == 'cpu' and args.ipex and args.bf16:
+            with torch.cpu.amp.autocast():
+                output = net(data)
+                loss = criterion(output, target)
+        else:
+            output = net(data)
+            loss = criterion(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % 10 == 0 or len(data) < args.batch_size:
@@ -49,8 +56,14 @@ def test(test_loader, net, criterion, optimizer, args):
     with torch.no_grad():
         for data, target in test_loader:
             data = data.to(args.device, non_blocking=True)
+            if args.device == 'cpu' and args.ipex:
+                data = data.to(memory_format=torch.channels_last)
             target = target.to(args.device, non_blocking=True)
-            output = net(data)
+            if args.device == 'cpu' and args.ipex and args.bf16:
+                with torch.cpu.amp.autocast():
+                    output = net(data)
+            else:
+                output = net(data)
             test_loss += criterion(output, target).item() * len(data) # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
@@ -128,17 +141,25 @@ def main(args):
 
     net = torchvision.models.resnet50()
     net = net.to(args.device)
-    if args.world_size > 1 and not is_hvd_enabled:
-        device_ids = None
-        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=device_ids)
-    criterion = nn.CrossEntropyLoss()
-    criterion = criterion.to(args.device)
     lr_scaler = 1
     if is_hvd_enabled:
         lr_scaler = hvd.size()
     optimizer = torch.optim.SGD(net.parameters(), lr = LR * lr_scaler, momentum=0.9)
     if is_hvd_enabled:
         optimizer = hvd.DistributedOptimizer(optimizer, named_parameters=net.named_parameters())
+
+    net.train()
+    if args.device == 'cpu' and args.ipex:
+        if not args.bf16:
+            net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.float32, level="O1")
+        else:
+            net, optimizer = ipex.optimize(net, optimizer=optimizer, dtype=torch.bfloat16, level="O1")
+
+    if args.world_size > 1 and not is_hvd_enabled:
+        device_ids = None
+        net = torch.nn.parallel.DistributedDataParallel(net, device_ids=device_ids)
+    criterion = nn.CrossEntropyLoss()
+    criterion = criterion.to(args.device)
 
     for epoch in range(EPOCH):
         train(train_loader, net, criterion, optimizer, epoch, args)
@@ -159,6 +180,8 @@ if __name__ == '__main__':
     parser.add_argument('--local_world_size', default=1, type=int, help='local world size')
     parser.add_argument('--world_size', default=1, type=int, help='world size')
     parser.add_argument('--device', default='cpu', type=str, help='Device to run on, default to cpu')
+    parser.add_argument('--ipex', action='store_true', help='with Intel(R) Extension for PyTorch*')
+    parser.add_argument('--bf16', action='store_true', help='Train with BFloat16')
     parser.add_argument('--backend', default='gloo', type=str, help='DDP backend, default to gloo')
     parser.add_argument('--master_addr', default='127.0.0.1', type=str, help='Master Addr')
     parser.add_argument('--port', default='29500', type=str, help='Port')
@@ -206,7 +229,17 @@ if __name__ == '__main__':
             # torch.cuda.set_device(args.local_rank)
     if args.backend == 'ccl':
         import torch_ccl
+    if args.device == 'cpu' and args.ipex:
+        try:
+            import intel_extension_for_pytorch as ipex
+            print('Successfully loaded intel_extension_for_pytorch')
+        except Exception as e:
+            print('Failed to load intel_extension_for_pytorch: {}'.format(e))
+            args.ipex = False
     print('Device: {}'.format(args.device))
-    print('Backend: {}'.format(args.backend))
+    if args.world_size == 1:
+        print('Train with single instance')
+    else:
+        print('Backend: {}'.format(args.backend))
 
     main(args)
