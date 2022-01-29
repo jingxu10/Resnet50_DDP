@@ -33,14 +33,16 @@ def train(train_loader, net, criterion, optimizer, epoch, args):
         if args.ipex and args.device == 'cpu':
             data = data.to(memory_format=torch.channels_last)
         target = target.to(args.device, non_blocking=True)
+        t00 = time.time()
         optimizer.zero_grad()
         with torch.cpu.amp.autocast(enabled=args.bf16):
             output = net(data)
             loss = criterion(output, target)
         loss.backward()
         optimizer.step()
-        if batch_idx % 10 == 0 or len(data) < args.batch_size:
-            print('[{}] Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(args.rank, epoch, args.world_size * batch_idx * len(data), len(train_loader.dataset), 100. * batch_idx / len(train_loader), loss.item()))
+        t01 = time.time()
+        if batch_idx % 1 == 0 or len(data) < args.batch_size:
+            print('[{}] Train Epoch: {} [{:5d}/{} ({:6.2f}%)]\tLoss: {:.6f}\tdur: {:.5f}ms'.format(args.rank, epoch, args.world_size * batch_idx * len(data), len(train_loader.dataset), 100. * batch_idx / float(len(train_loader)), loss.item(), (t01-t00)*1000))
     t1 = time.time()
     print('time elapsed: {:.2f}s'.format(t1-t0))
 
