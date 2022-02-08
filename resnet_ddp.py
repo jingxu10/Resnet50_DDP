@@ -35,7 +35,11 @@ def train(train_loader, net, criterion, optimizer, epoch, args):
         target = target.to(args.device, non_blocking=True)
         t00 = time.time()
         optimizer.zero_grad()
-        with torch.cpu.amp.autocast(enabled=args.bf16):
+        if args.device == 'cpu':
+            with torch.cpu.amp.autocast(enabled=args.bf16):
+                output = net(data)
+                loss = criterion(output, target)
+        else:
             output = net(data)
             loss = criterion(output, target)
         loss.backward()
@@ -57,9 +61,14 @@ def test(test_loader, net, criterion, optimizer, args):
             if args.ipex and args.device == 'cpu':
                 data = data.to(memory_format=torch.channels_last)
             target = target.to(args.device, non_blocking=True)
-            with torch.cpu.amp.autocast(enabled=args.bf16):
+            if args.device == 'cpu':
+                with torch.cpu.amp.autocast(enabled=args.bf16):
+                    output = net(data)
+                    test_loss += criterion(output, target).item() * len(data) # sum up batch loss
+            else:
                 output = net(data)
-            test_loss += criterion(output, target).item() * len(data) # sum up batch loss
+                loss = criterion(output, target)
+                test_loss += criterion(output, target).item() * len(data) # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
             count += len(data)
